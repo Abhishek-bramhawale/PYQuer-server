@@ -10,7 +10,6 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Check for required environment variables
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
   console.error('Error: GEMINI_API_KEY is not set in environment variables');
@@ -19,21 +18,18 @@ if (!apiKey) {
   process.exit(1);
 }
 
-// Error logging middleware
 app.use((err, req, res, next) => {
   console.error('Server Error:', err);
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-// Middleware
 app.use(cors({
-  origin: 'http://localhost:3000', // Allow frontend requests
+  origin: 'http://localhost:3000',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type']
 }));
 app.use(express.json());
 
-// Log all requests except health checks
 app.use((req, res, next) => {
   if (req.url !== '/api/health') {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
@@ -41,7 +37,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Configure multer for file upload
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadDir = path.join(__dirname, 'uploads');
@@ -55,7 +50,7 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   fileFilter: (req, file, cb) => {
     if (file.mimetype === 'application/pdf') {
@@ -66,91 +61,119 @@ const upload = multer({
   }
 });
 
-// Initialize Gemini API
 const genAI = new GoogleGenerativeAI(apiKey);
 
-// File upload endpoint
-app.post('/api/upload', upload.single('file'), async (req, res) => {
+app.post('/api/upload', upload.array('files'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    // Extract subject and year from filename or request body
-    const filename = req.file.originalname;
-    const subject = req.body.subject || 'Unknown Subject';
-    const year = req.body.year || new Date().getFullYear();
+    const uploadedFilesInfo = req.files.map(file => ({
+      fileId: file.filename,
+      subject: 'Unknown Subject',
+      year: new Date().getFullYear(),
+      originalName: file.originalname
+    }));
 
-    // Return file info
-    res.json({
-      fileId: req.file.filename,
-      subject: subject,
-      year: year,
-      originalName: filename
-    });
+    res.json({ files: uploadedFilesInfo });
   } catch (error) {
     console.error('Upload error:', error);
-    res.status(500).json({ error: 'Error uploading file' });
+    if (error instanceof multer.MulterError) {
+      console.error('Multer specific error code:', error.code);
+      return res.status(400).json({ error: `Upload failed: ${error.message}` });
+    }
+    res.status(500).json({ error: 'Error uploading files' });
   }
 });
 
-// Analysis endpoint
 app.post('/api/analyze', async (req, res) => {
   try {
-    const { fileId, subject, year } = req.body;
+    const { papers } = req.body;
 
-    if (!fileId) {
-      return res.status(400).json({ error: 'File ID is required' });
+    if (!papers || papers.length === 0) {
+      return res.status(400).json({ error: 'No papers provided for analysis' });
     }
 
-    // Read the uploaded file
-    const filePath = path.join(__dirname, 'uploads', fileId);
-    const pdfBuffer = fs.readFileSync(filePath);
-    
-    // Parse the PDF
-    const pdfData = await pdfParse(pdfBuffer);
-    const fileContent = pdfData.text;
+    const parsedPapers = [];
+    for (const paper of papers) {
+      const filePath = path.join(__dirname, 'uploads', paper.fileId);
+      if (!fs.existsSync(filePath)) {
+        console.warn(`File not found: ${filePath}`);
+        continue;
+      }
+      const pdfBuffer = fs.readFileSync(filePath);
+      const pdfData = await pdfParse(pdfBuffer);
+      parsedPapers.push({
+        text: pdfData.text,
+        subject: paper.subject,
+        year: paper.year
+      });
+    }
 
-    // Prepare the paper data for analysis
-    const paper = {
-      text: fileContent,
-      subject: subject,
-      year: year
-    };
+    if (parsedPapers.length === 0) {
+      return res.status(400).json({ error: 'No valid papers found for analysis' });
+    }
+
+    const papersText = parsedPapers.map((paper, index) => `
+Paper ${index + 1} (${paper.year}):
+${paper.text}
+`).join('\n');
+
+    const isMathSubject = parsedPapers.some(paper => {
+      const subject = paper.subject.toLowerCase();
+      return subject.includes('math') || 
+             subject.includes('mathematics') ||
+             subject.includes('calculus') ||
+             subject.includes('algebra') ||
+             subject.includes('theory of computation') ||
+             subject.includes('toc') ||
+             subject.includes('discrete mathematics') ||
+             subject.includes('dm') ||
+             subject.includes('compiler design') ||
+             subject.includes('compiler') ||
+             subject.includes('automata') ||
+             subject.includes('formal languages') ||
+             subject.includes('cd');
+    });
 
     try {
-      // Use the Gemini API to analyze the paper
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-      
-      // Format papers data for the prompt
-      const papersText = `
-Paper 1 (${paper.year}):
-${paper.text}
-`;
-
-      // Prepare the prompt for analysis
       const prompt = `
 You are an assistant that analyzes previous year questions. From the uploaded list of questions, provide a comprehensive analysis.
+
+${isMathSubject ? 'NOTE: This analysis tool works best for theory subjects. For mathematics, theory of computation, discrete mathematics, compiler design, and similar technical subjects, the analysis will be more general and focus on question patterns and types rather than exact content.' : ''}
 
 You must return the results in EXACTLY this format, including ALL sections and subsections:
 
 1. Repeated Questions Analysis:
+If there are repeated questions, format them in a table like this:
 | Question | Repeated Count | Papers Appeared |
 |----------|---------------|-----------------|
 | What is software engineering? | 3 | Paper 1 (2020), Paper 2 (2021), Paper 3 (2022) |
 | Explain the waterfall model. | 2 | Paper 1 (2020), Paper 3 (2022) |
 
+If there are NO repeated questions, simply state:
+"No repeated questions found across the papers."
+
 2. Questions Asking for Differences:
+If there are questions asking for differences, format them in a table like this:
 | Question | Papers Appeared |
 |----------|-----------------|
 | Compare and contrast X and Y | Paper 1 (2020), Paper 3 (2022) |
 | Differentiate between A and B | Paper 2 (2021) |
 
+If there are NO questions asking for differences, simply state:
+"No questions asking for differences found in the papers."
+
 3. Questions Requiring Diagrams:
+If there are questions requiring diagrams, format them in a table like this:
 | Question | Papers Appeared |
 |----------|-----------------|
 | Draw and explain the architecture of... | Paper 1 (2020) |
 | Illustrate the process flow of... | Paper 2 (2021), Paper 3 (2022) |
+
+If there are NO questions requiring diagrams, simply state:
+"No questions requiring diagrams found in the papers."
 
 4. Remaining Questions:
 Paper 1:
@@ -175,13 +198,29 @@ Based on the analysis of all papers, here are the key recommendations for studen
    - Practice drawing diagrams for concepts listed in section 3
    - Work through remaining questions from Section 4
 
+IMPORTANT:
+- Keep the exact format shown above for all sections.
+- For sections 1, 2, and 3, if no matching questions are found, use the "No X found" message instead of an empty table.
+- Do not add any extra sections or information before or after the specified sections.
+- Do not modify the question text from the input papers.
+- Use proper markdown table formatting only when there are actual items to display.
+- For technical subjects (mathematics, theory of computation, discrete mathematics, compiler design, etc.), focus on question patterns and types rather than exact content when generating recommendations.
+- Always start with Paper 1 in section 4.
+- Add blank lines between questions within a paper in section 4.
+- *Ensure section 5 is filled with actual, specific recommendations and not just the structure or placeholders.*
+
 INPUT PAPERS:
 ${papersText}
 `;
 
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const analysis = response.text();
+
+      console.log('\n=== Raw Gemini Analysis Response ===\n');
+      console.log(analysis);
+      console.log('\n===================================\n');
 
       res.json({
         analysis: analysis,
@@ -190,9 +229,9 @@ ${papersText}
 
     } catch (geminiError) {
       console.error('Gemini API Error:', geminiError);
-      return res.status(500).json({ 
+      return res.status(500).json({
         error: 'Error analyzing with Gemini API. Please check your API key and try again.',
-        details: geminiError.message 
+        details: geminiError.message
       });
     }
 
@@ -202,51 +241,20 @@ ${papersText}
   }
 });
 
-// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-// Start the server with error handling
-let server;
-try {
-  server = app.listen(port, '0.0.0.0', () => {
-    console.log(`Server is running on http://localhost:${port}`);
-    console.log('Press Ctrl+C to stop the server');
-  });
-} catch (err) {
-  if (err.code === 'EADDRINUSE') {
-    console.error(`Port ${port} is already in use. Please try a different port or kill the process using this port.`);
-  } else {
-    console.error('Server error:', err);
-  }
-  process.exit(1);
-}
-
-// Handle process termination
-const shutdown = () => {
-  console.log('\nShutting down server...');
-  if (server) {
-    server.close(() => {
-      console.log('Server closed');
-      process.exit(0);
-    });
-  } else {
-    process.exit(0);
-  }
-};
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception:', err);
-  shutdown();
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err) => {
-  console.error('Unhandled Rejection:', err);
-  shutdown();
+process.on('SIGTERM', () => {
+  console.log('SIGTERM signal received: closing HTTP server');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT signal received: closing HTTP server');
+  process.exit(0);
 });
