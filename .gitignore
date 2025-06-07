@@ -8,6 +8,8 @@ yarn-error.log*
 dist/
 build/
 coverage/
+uploads/
+**/uploads
 
 # OS
 .DS_Store
@@ -56,3 +58,4 @@ coverage/
 .cache/
 .npm/
 .yarn/
+
