@@ -69,12 +69,17 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    const uploadedFilesInfo = req.files.map(file => ({
-      fileId: file.filename,
-      subject: 'Unknown Subject',
-      year: new Date().getFullYear(),
-      originalName: file.originalname
-    }));
+    const uploadedFilesInfo = req.files.map(file => {
+      const subject = 'Unknown Subject';
+      const year = 'Unknown Year';
+
+      return {
+        fileId: file.filename,
+        subject: subject,
+        year: year,
+        originalName: file.originalname
+      };
+    });
 
     res.json({ files: uploadedFilesInfo });
   } catch (error) {
@@ -116,7 +121,7 @@ app.post('/api/analyze', async (req, res) => {
     }
 
     const papersText = parsedPapers.map((paper, index) => `
-Paper ${index + 1} (${paper.year}):
+Paper ${index + 1}:
 ${paper.text}
 `).join('\n');
 
@@ -149,8 +154,8 @@ You must return the results in EXACTLY this format, including ALL sections and s
 If there are repeated questions, format them in a table like this:
 | Question | Repeated Count | Papers Appeared |
 |----------|---------------|-----------------|
-| What is software engineering? | 3 | Paper 1 (2020), Paper 2 (2021), Paper 3 (2022) |
-| Explain the waterfall model. | 2 | Paper 1 (2020), Paper 3 (2022) |
+| What is software engineering? | 3 | Paper 1, Paper 2, Paper 3 |
+| Explain the waterfall model. | 2 | Paper 1, Paper 3 |
 
 If there are NO repeated questions, simply state:
 "No repeated questions found across the papers."
@@ -159,8 +164,8 @@ If there are NO repeated questions, simply state:
 If there are questions asking for differences, format them in a table like this:
 | Question | Papers Appeared |
 |----------|-----------------|
-| Compare and contrast X and Y | Paper 1 (2020), Paper 3 (2022) |
-| Differentiate between A and B | Paper 2 (2021) |
+| Compare and contrast X and Y | Paper 1, Paper 3 |
+| Differentiate between A and B | Paper 2 |
 
 If there are NO questions asking for differences, simply state:
 "No questions asking for differences found in the papers."
@@ -169,8 +174,8 @@ If there are NO questions asking for differences, simply state:
 If there are questions requiring diagrams, format them in a table like this:
 | Question | Papers Appeared |
 |----------|-----------------|
-| Draw and explain the architecture of... | Paper 1 (2020) |
-| Illustrate the process flow of... | Paper 2 (2021), Paper 3 (2022) |
+| Draw and explain the architecture of... | Paper 1 |
+| Illustrate the process flow of... | Paper 2, Paper 3 |
 
 If there are NO questions requiring diagrams, simply state:
 "No questions requiring diagrams found in the papers."
@@ -198,7 +203,11 @@ Based on the analysis of all papers, here are the key recommendations for studen
    - Practice drawing diagrams for concepts listed in section 3
    - Work through remaining questions from Section 4
 
+6. Predictions:
+Based on the analysis of all papers, provide predictions for the upcoming year's paper. Include specific topics or question types that are highly likely to appear.
+
 IMPORTANT:
+- **For the 'Papers Appeared' column, you MUST ONLY include the paper number (e.g., 'Paper 1', 'Paper 2'). You are ABSOLUTELY FORBIDDEN from including any year information (e.g., 'Paper 1 (2020)', 'Paper 1 (Unknown Year)'). Focus solely on the paper number provided in the INPUT PAPERS.**
 - Keep the exact format shown above for all sections.
 - For sections 1, 2, and 3, if no matching questions are found, use the "No X found" message instead of an empty table.
 - Do not add any extra sections or information before or after the specified sections.
@@ -208,6 +217,7 @@ IMPORTANT:
 - Always start with Paper 1 in section 4.
 - Add blank lines between questions within a paper in section 4.
 - *Ensure section 5 is filled with actual, specific recommendations and not just the structure or placeholders.*
+- *Ensure section 6 is filled with actual, specific predictions and not just the structure or placeholders.*
 
 INPUT PAPERS:
 ${papersText}
