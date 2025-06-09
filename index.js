@@ -5,16 +5,41 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const path = require('path');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
+const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 5000;
+
+// MongoDB Connection
+const connectDB = async () => {
+  try {
+    const conn = await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log(`MongoDB Connected: ${conn.connection.host}`);
+  } catch (error) {
+    console.error('MongoDB connection error:', error);
+    process.exit(1);
+  }
+};
+
+// Connect to MongoDB
+connectDB();
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
   console.error('Error: GEMINI_API_KEY is not set in environment variables');
   console.error('Please create a .env file in the server directory with your Gemini API key:');
   console.error('GEMINI_API_KEY=your_api_key_here');
+  process.exit(1);
+}
+
+// Check for JWT Secret
+if (!process.env.JWT_SECRET) {
+  console.error('Error: JWT_SECRET is not set in environment variables');
+  console.error('Please add JWT_SECRET=your_jwt_secret_here to your .env file');
   process.exit(1);
 }
 
@@ -25,8 +50,8 @@ app.use((err, req, res, next) => {
 
 app.use(cors({
   origin: 'http://localhost:3000',
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type']
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json());
 
@@ -36,6 +61,12 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Import routes
+const authRoutes = require('./routes/auth');
+
+// Use routes
+app.use('/api/auth', authRoutes);
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
