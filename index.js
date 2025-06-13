@@ -6,12 +6,13 @@ const path = require('path');
 const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const mongoose = require('mongoose');
+const cohere = require('cohere-ai');
 require('dotenv').config();
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// MongoDB Connection
+// mongoos Connection
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
@@ -25,7 +26,7 @@ const connectDB = async () => {
   }
 };
 
-// Connect to MongoDB
+// mongodb connect
 connectDB();
 
 const apiKey = process.env.GEMINI_API_KEY;
@@ -36,7 +37,7 @@ if (!apiKey) {
   process.exit(1);
 }
 
-// Check for JWT Secret
+// jwt
 if (!process.env.JWT_SECRET) {
   console.error('Error: JWT_SECRET is not set in environment variables');
   console.error('Please add JWT_SECRET=your_jwt_secret_here to your .env file');
@@ -49,7 +50,7 @@ app.use((err, req, res, next) => {
 });
 
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: ['http://localhost:3000', 'http://localhost:5000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
@@ -62,10 +63,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Import routes
+
 const authRoutes = require('./routes/auth');
 
-// Use routes
+
 app.use('/api/auth', authRoutes);
 
 const storage = multer.diskStorage({
@@ -92,89 +93,54 @@ const upload = multer({
   }
 });
 
-const genAI = new GoogleGenerativeAI(apiKey);
 
-app.post('/api/upload', upload.array('files'), async (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+console.log('Initializing Cohere with API key:', process.env.COHERE_API_KEY ? 'API key is set' : 'API key is missing');
+cohere.init(process.env.COHERE_API_KEY);
+
+
+const parsePapers = async (papers) => {
+  const parsedPapers = [];
+  for (const paper of papers) {
+    const filePath = path.join(__dirname, 'uploads', paper.fileId);
+    if (!fs.existsSync(filePath)) {
+      console.warn(`File not found: ${filePath}`);
+      continue;
     }
-
-    const uploadedFilesInfo = req.files.map(file => {
-      const subject = 'Unknown Subject';
-      const year = 'Unknown Year';
-
-      return {
-        fileId: file.filename,
-        subject: subject,
-        year: year,
-        originalName: file.originalname
-      };
+    const pdfBuffer = fs.readFileSync(filePath);
+    const pdfData = await pdfParse(pdfBuffer);
+    parsedPapers.push({
+      text: pdfData.text,
+      subject: paper.subject,
+      year: paper.year
     });
-
-    res.json({ files: uploadedFilesInfo });
-  } catch (error) {
-    console.error('Upload error:', error);
-    if (error instanceof multer.MulterError) {
-      console.error('Multer specific error code:', error.code);
-      return res.status(400).json({ error: `Upload failed: ${error.message}` });
-    }
-    res.status(500).json({ error: 'Error uploading files' });
   }
-});
+  return parsedPapers;
+};
 
-app.post('/api/analyze', async (req, res) => {
-  try {
-    const { papers } = req.body;
+// not supported sentence sub..
+const isMathSubject = (papers) => {
+  return papers.some(paper => {
+    const subject = paper.subject.toLowerCase();
+    return subject.includes('math') || 
+           subject.includes('mathematics') ||
+           subject.includes('calculus') ||
+           subject.includes('algebra') ||
+           subject.includes('theory of computation') ||
+           subject.includes('toc') ||
+           subject.includes('discrete mathematics') ||
+           subject.includes('dm') ||
+           subject.includes('compiler design') ||
+           subject.includes('compiler') ||
+           subject.includes('automata') ||
+           subject.includes('formal languages') ||
+           subject.includes('cd');
+  });
+};
 
-    if (!papers || papers.length === 0) {
-      return res.status(400).json({ error: 'No papers provided for analysis' });
-    }
-
-    const parsedPapers = [];
-    for (const paper of papers) {
-      const filePath = path.join(__dirname, 'uploads', paper.fileId);
-      if (!fs.existsSync(filePath)) {
-        console.warn(`File not found: ${filePath}`);
-        continue;
-      }
-      const pdfBuffer = fs.readFileSync(filePath);
-      const pdfData = await pdfParse(pdfBuffer);
-      parsedPapers.push({
-        text: pdfData.text,
-        subject: paper.subject,
-        year: paper.year
-      });
-    }
-
-    if (parsedPapers.length === 0) {
-      return res.status(400).json({ error: 'No valid papers found for analysis' });
-    }
-
-    const papersText = parsedPapers.map((paper, index) => `
-Paper ${index + 1}:
-${paper.text}
-`).join('\n');
-
-    const isMathSubject = parsedPapers.some(paper => {
-      const subject = paper.subject.toLowerCase();
-      return subject.includes('math') || 
-             subject.includes('mathematics') ||
-             subject.includes('calculus') ||
-             subject.includes('algebra') ||
-             subject.includes('theory of computation') ||
-             subject.includes('toc') ||
-             subject.includes('discrete mathematics') ||
-             subject.includes('dm') ||
-             subject.includes('compiler design') ||
-             subject.includes('compiler') ||
-             subject.includes('automata') ||
-             subject.includes('formal languages') ||
-             subject.includes('cd');
-    });
-
-    try {
-      const prompt = `
+// prompt
+const generatePrompt = (papersText, isMathSubject) => {
+  return `
 You are an assistant that analyzes previous year questions. From the uploaded list of questions, provide a comprehensive analysis.
 
 ${isMathSubject ? 'NOTE: This analysis tool works best for theory subjects. For mathematics, theory of computation, discrete mathematics, compiler design, and similar technical subjects, the analysis will be more general and focus on question patterns and types rather than exact content.' : ''}
@@ -253,32 +219,253 @@ IMPORTANT:
 INPUT PAPERS:
 ${papersText}
 `;
+};
 
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const analysis = response.text();
+app.post('/api/upload', upload.array('files'), async (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'No files uploaded' });
+    }
 
-      console.log('\n=== Raw Gemini Analysis Response ===\n');
+    const uploadedFilesInfo = req.files.map(file => {
+      const subject = 'Unknown Subject';
+      const year = 'Unknown Year';
+
+      return {
+        fileId: file.filename,
+        subject: subject,
+        year: year,
+        originalName: file.originalname
+      };
+    });
+
+    res.json({ files: uploadedFilesInfo });
+  } catch (error) {
+    console.error('Upload error:', error);
+    if (error instanceof multer.MulterError) {
+      console.error('Multer specific error code:', error.code);
+      return res.status(400).json({ error: `Upload failed: ${error.message}` });
+    }
+    res.status(500).json({ error: 'Error uploading files' });
+  }
+});
+
+app.post('/api/analyze', async (req, res) => {
+  try {
+    const { papers, model = 'gemini' } = req.body;
+
+    if (!papers || papers.length === 0) {
+      return res.status(400).json({ error: 'No papers provided for analysis' });
+    }
+
+    const parsedPapers = await parsePapers(papers);
+    if (parsedPapers.length === 0) {
+      return res.status(400).json({ error: 'No valid papers found for analysis' });
+    }
+
+    const papersText = parsedPapers.map((paper, index) => `
+Paper ${index + 1}:
+${paper.text}
+`).join('\n');
+
+    const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
+
+    let analysis;
+    try {
+      switch (model.toLowerCase()) {
+        case 'gemini':
+          const geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+          const result = await geminiModel.generateContent(prompt);
+          const response = await result.response;
+          analysis = response.text();
+          break;
+
+        case 'mistral': {
+          const { default: MistralClient } = await import('@mistralai/mistralai');
+          const mistralClient = new MistralClient(process.env.MISTRAL_API_KEY);
+          const mistralResponse = await mistralClient.chat({
+            model: 'mistral-large-latest',
+            messages: [{ role: 'user', content: prompt }]
+          });
+          analysis = mistralResponse.choices[0].message.content;
+          break;
+        }
+
+        case 'cohere':
+          const cohereResponse = await cohere.generate({
+            model: 'command',
+            prompt: prompt,
+            max_tokens: 2000,
+            temperature: 0.7,
+            k: 0,
+            stop_sequences: [],
+            return_likelihoods: 'NONE'
+          });
+          analysis = cohereResponse.generations[0].text;
+          break;
+
+        default:
+          return res.status(400).json({ error: 'Invalid model specified' });
+      }
+
+      console.log(`\n=== Raw ${model.toUpperCase()} Analysis Response ===\n`);
       console.log(analysis);
       console.log('\n===================================\n');
 
       res.json({
         analysis: analysis,
+        model: model,
         timestamp: new Date().toISOString()
       });
 
-    } catch (geminiError) {
-      console.error('Gemini API Error:', geminiError);
+    } catch (apiError) {
+      console.error(`${model.toUpperCase()} API Error:`, apiError);
       return res.status(500).json({
-        error: 'Error analyzing with Gemini API. Please check your API key and try again.',
-        details: geminiError.message
+        error: `Error analyzing with ${model.toUpperCase()} API. Please check your API key and try again.`,
+        details: apiError.message
       });
     }
 
   } catch (error) {
     console.error('Analysis error:', error);
     res.status(500).json({ error: 'Error analyzing paper' });
+  }
+});
+
+// Gemini endpoint
+app.post('/api/ai/gemini', async (req, res) => {
+  try {
+    const { papers } = req.body;
+    if (!papers || papers.length === 0) {
+      return res.status(400).json({ error: 'No papers provided for analysis' });
+    }
+
+    const parsedPapers = await parsePapers(papers);
+    if (parsedPapers.length === 0) {
+      return res.status(400).json({ error: 'No valid papers found for analysis' });
+    }
+
+    const papersText = parsedPapers.map((paper, index) => `
+Paper ${index + 1}:
+${paper.text}
+`).join('\n');
+
+    const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
+
+    const geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const result = await geminiModel.generateContent(prompt);
+    const response = await result.response;
+    const analysis = response.text();
+
+    res.json({
+      analysis: analysis,
+      model: 'gemini',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Gemini API Error:', error);
+    res.status(500).json({
+      error: 'Error analyzing with Gemini API. Please check your API key and try again.',
+      details: error.message
+    });
+  }
+});
+
+// Mistral endpoint
+app.post('/api/ai/mistral', async (req, res) => {
+  try {
+    const { papers } = req.body;
+    if (!papers || papers.length === 0) {
+      return res.status(400).json({ error: 'No papers provided for analysis' });
+    }
+
+    const parsedPapers = await parsePapers(papers);
+    if (parsedPapers.length === 0) {
+      return res.status(400).json({ error: 'No valid papers found for analysis' });
+    }
+
+    const papersText = parsedPapers.map((paper, index) => `
+Paper ${index + 1}:
+${paper.text}
+`).join('\n');
+
+    const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
+
+    const { default: MistralClient } = await import('@mistralai/mistralai');
+    const mistralClient = new MistralClient(process.env.MISTRAL_API_KEY);
+    const mistralResponse = await mistralClient.chat({
+      model: 'mistral-large-latest',
+      messages: [{ role: 'user', content: prompt }]
+    });
+    const analysis = mistralResponse.choices[0].message.content;
+
+    res.json({
+      analysis: analysis,
+      model: 'mistral',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Mistral API Error:', error);
+    res.status(500).json({
+      error: 'Error analyzing with Mistral API. Please check your API key and try again.',
+      details: error.message
+    });
+  }
+});
+
+// Cohere endpoint
+app.post('/api/ai/cohere', async (req, res) => {
+  try {
+    const { papers } = req.body;
+    if (!papers || papers.length === 0) {
+      return res.status(400).json({ error: 'No papers provided for analysis' });
+    }
+
+    const parsedPapers = await parsePapers(papers);
+    if (parsedPapers.length === 0) {
+      return res.status(400).json({ error: 'No valid papers found for analysis' });
+    }
+
+    const papersText = parsedPapers.map((paper, index) => `
+Paper ${index + 1}:
+${paper.text}
+`).join('\n');
+
+    const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
+
+    const cohereResponse = await cohere.generate({
+      model: 'command',
+      prompt: prompt,
+      max_tokens: 2000,
+      temperature: 0.7,
+      k: 0,
+      stop_sequences: [],
+      return_likelihoods: 'NONE'
+    });
+
+   
+    console.log('Cohere API Response:', JSON.stringify(cohereResponse, null, 2));
+
+    if (!cohereResponse || !cohereResponse.generations || !cohereResponse.generations[0]) {
+      throw new Error('Invalid response from Cohere API');
+    }
+
+    const analysis = cohereResponse.generations[0].text;
+
+    res.json({
+      analysis: analysis,
+      model: 'cohere',
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Cohere API Error:', error);
+    res.status(500).json({
+      error: 'Error analyzing with Cohere API. Please check your API key and try again.',
+      details: error.message
+    });
   }
 });
 
