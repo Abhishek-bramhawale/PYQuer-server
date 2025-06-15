@@ -463,7 +463,7 @@ ${paper.text}
   } catch (error) {
     console.error('Cohere API Error:', error);
     res.status(500).json({
-      error: 'Error analyzing with Cohere API. Please check your API key and try again.',
+      error: 'Error with Cohere API',
       details: error.message
     });
   }
