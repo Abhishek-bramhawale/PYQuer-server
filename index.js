@@ -109,10 +109,9 @@ const parsePapers = async (papers) => {
       console.warn(`File not found: ${filePath}`);
       continue;
     }
-    const pdfBuffer = fs.readFileSync(filePath);
-    const pdfData = await pdfParse(pdfBuffer);
-    let text = pdfData.text;
-    if (!text || !text.trim()) {
+    let text = '';
+    if (paper.needsOCR) {
+      console.log(`Performing OCR for non-searchable PDF: ${paper.originalName}`);
       const images = await pdfImgConvert.convert(filePath, { width: 2200, height: 3000 });
       let ocrText = '';
       for (let i = 0; i < images.length; i++) {
@@ -121,15 +120,24 @@ const parsePapers = async (papers) => {
           fs.writeFileSync(path.join(__dirname, 'uploads', 'ocr_debug_page1.png'), img);
         }
         const { data: { text: pageText } } = await Tesseract.recognize(img, 'eng');
-        console.log(`OCR result for page ${i + 1}:`, pageText);
+        console.log(`OCR result for page ${i + 1} (${paper.originalName}):`, pageText);
         ocrText += pageText + '\n';
       }
       text = ocrText;
+    } else {
+      console.log(`Extracting text from searchable PDF: ${paper.originalName}`);
+      const pdfBuffer = fs.readFileSync(filePath);
+      const pdfData = await pdfParse(pdfBuffer);
+      text = pdfData.text;
     }
+    
+    // console.log(`Paper: ${paper.originalName}, Text Extracted (first 100 chars): ${text.substring(0, 100)}...`);
+    // console.log(`OCR Used for ${paper.originalName}: ${!!text && paper.needsOCR}`);
     parsedPapers.push({
       text,
       subject: paper.subject,
-      year: paper.year
+      year: paper.year,
+      originalName: paper.originalName // Keep original name for logging
     });
   }
   return parsedPapers;
@@ -244,17 +252,29 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
       return res.status(400).json({ error: 'No files uploaded' });
     }
 
-    const uploadedFilesInfo = req.files.map(file => {
-      const subject = 'Unknown Subject';
-      const year = 'Unknown Year';
+    const uploadedFilesInfo = [];
+    for (const file of req.files) {
+      const filePath = path.join(__dirname, 'uploads', file.filename);
+      const pdfBuffer = fs.readFileSync(filePath);
+      let needsOCR = false;
+      try {
+        const pdfData = await pdfParse(pdfBuffer);
+        if (!pdfData.text || !pdfData.text.trim()) {
+          needsOCR = true;
+        }
+      } catch (parseError) {
+        console.warn(`Error parsing PDF ${file.originalname} with pdf-parse, assuming non-searchable:`, parseError.message);
+        needsOCR = true;
+      }
 
-      return {
+      uploadedFilesInfo.push({
         fileId: file.filename,
-        subject: subject,
-        year: year,
-        originalName: file.originalname
-      };
-    });
+        subject: 'Unknown Subject',
+        year: new Date().getFullYear(),
+        originalName: file.originalname,
+        needsOCR: needsOCR 
+      });
+    }
 
     res.json({ files: uploadedFilesInfo });
   } catch (error) {
@@ -328,11 +348,14 @@ ${paper.text}
       console.log(`\n=== Raw ${model.toUpperCase()} Analysis Response ===\n`);
       console.log(analysis);
       console.log('\n===================================\n');
-
+      console.log('Papers sent to client with OCR status:', parsedPapers.map(p => ({ originalName: p.originalName, usedOCR: !!p.text && p.needsOCR })));
       res.json({
         analysis: analysis,
         model: model,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        papers: parsedPapers.map(paper => ({
+          originalName: paper.originalName // Return original name to client
+        }))
       });
 
     } catch (apiError) {
