@@ -7,6 +7,8 @@ const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const mongoose = require('mongoose');
 const cohere = require('cohere-ai');
+const pdfImgConvert = require('pdf-img-convert');
+const Tesseract = require('tesseract.js');
 require('dotenv').config();
 
 const app = express();
@@ -109,8 +111,23 @@ const parsePapers = async (papers) => {
     }
     const pdfBuffer = fs.readFileSync(filePath);
     const pdfData = await pdfParse(pdfBuffer);
+    let text = pdfData.text;
+    if (!text || !text.trim()) {
+      const images = await pdfImgConvert.convert(filePath, { width: 2200, height: 3000 });
+      let ocrText = '';
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        if (i === 0) {
+          fs.writeFileSync(path.join(__dirname, 'uploads', 'ocr_debug_page1.png'), img);
+        }
+        const { data: { text: pageText } } = await Tesseract.recognize(img, 'eng');
+        console.log(`OCR result for page ${i + 1}:`, pageText);
+        ocrText += pageText + '\n';
+      }
+      text = ocrText;
+    }
     parsedPapers.push({
-      text: pdfData.text,
+      text,
       subject: paper.subject,
       year: paper.year
     });
