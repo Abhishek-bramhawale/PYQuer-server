@@ -338,7 +338,7 @@ ${paper.text}
             stop_sequences: [],
             return_likelihoods: 'NONE'
           });
-          analysis = cohereResponse.generations[0].text;
+          analysis = cohereResponse.body.generations[0].text;
           break;
 
         default:
@@ -488,11 +488,11 @@ ${paper.text}
    
     console.log('Cohere API Response:', JSON.stringify(cohereResponse, null, 2));
 
-    if (!cohereResponse || !cohereResponse.generations || !cohereResponse.generations[0]) {
+    if (!cohereResponse || !cohereResponse.body || !cohereResponse.body.generations || !cohereResponse.body.generations[0]) {
       throw new Error('Invalid response from Cohere API');
     }
 
-    const analysis = cohereResponse.generations[0].text;
+    const analysis = cohereResponse.body.generations[0].text;
 
     res.json({
       analysis: analysis,
