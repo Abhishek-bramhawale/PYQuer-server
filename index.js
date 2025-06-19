@@ -9,6 +9,10 @@ const mongoose = require('mongoose');
 const cohere = require('cohere-ai');
 const pdfImgConvert = require('pdf-img-convert');
 const Tesseract = require('tesseract.js');
+const AnalysisHistory = require('./models/AnalysisHistory');
+const { protect } = require('./middleware/auth');
+const jwt = require('jsonwebtoken');
+const User = require('./models/User');
 require('dotenv').config();
 
 const app = express();
@@ -65,11 +69,17 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use('/api/', (req, res, next) => {
+  res.set('Cache-Control', 'no-store');
+  next();
+});
 
 const authRoutes = require('./routes/auth');
+const aiRoutes = require('./routes/ai');
 
 
 app.use('/api/auth', authRoutes);
+app.use('/api/ai', aiRoutes);
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -137,7 +147,7 @@ const parsePapers = async (papers) => {
       text,
       subject: paper.subject,
       year: paper.year,
-      originalName: paper.originalName // Keep original name for logging
+      originalName: paper.originalName 
     });
   }
   return parsedPapers;
@@ -354,6 +364,35 @@ ${paper.text}
       console.log(analysis);
       console.log('\n===================================\n');
       console.log('Papers sent to client with OCR status:', parsedPapers.map(p => ({ originalName: p.originalName, usedOCR: !!p.text && p.needsOCR })));
+
+      // Save analysis history if user is authenticated
+      let userId = null;
+      if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
+        try {
+          const token = req.headers.authorization.split(' ')[1];
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          userId = decoded.id;
+        } catch (err) {
+          userId = null;
+        }
+      }
+      if (userId) {
+        console.log('Saving analysis history for user:', userId);
+        await AnalysisHistory.create({
+          user: userId,
+          papersInfo: parsedPapers.map(p => ({
+            originalName: p.originalName,
+            subject: p.subject,
+            year: p.year,
+            needsOCR: false 
+          })),
+          prompt,
+          analysis,
+          modelUsed: model,
+        });
+        console.log('Analysis history saved for user:', userId);
+      }
+
       res.json({
         analysis: analysis,
         model: model,
