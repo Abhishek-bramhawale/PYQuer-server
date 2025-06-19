@@ -1,14 +1,10 @@
-  const express = require('express');
+const express = require('express');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const router = express.Router();
+const { protect } = require('../middleware/auth');
+const AnalysisHistory = require('../models/AnalysisHistory');
 
 const API_BASE_URL = 'http://localhost:5000';
-
-export const API_ENDPOINTS = {
-  GEMINI: `${API_BASE_URL}/api/ai/gemini`,
-  MISTRAL: `${API_BASE_URL}/api/ai/mistral`,
-  COHERE: `${API_BASE_URL}/api/ai/cohere`
-};
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -69,6 +65,18 @@ router.post('/mistral', async (req, res) => {
   } catch (error) {
     console.error('Mistral API Error:', error);
     res.status(500).json({ error: 'Error generating Mistral response' });
+  }
+});
+
+// Get history for the loggined user
+router.get('/history', protect, async (req, res) => {
+  try {
+    const history = await AnalysisHistory.find({ user: req.user._id })
+      .sort({ createdAt: -1 });
+    res.json({ history });
+  } catch (error) {
+    console.error('Error fetching analysis history:', error);
+    res.status(500).json({ error: 'Failed to fetch analysis history' });
   }
 });
 
