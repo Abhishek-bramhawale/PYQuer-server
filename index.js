@@ -202,11 +202,16 @@ If there are questions requiring diagrams, format them in a table like this:
 If there are NO questions requiring diagrams, simply state:
 "No questions requiring diagrams found in the papers."
 
-4. Remaining Questions:
+4. Remaining Questions: list each and every remaining questions as it is that were not included in above three sections i.e. repeated, difference, diagrams. Exclude the questions that are already appeared in above 3 sections.. but list remaining all.. list compulsorily in following format -
 Paper 1:
-a) [Question text]
+q1. a) [Question text]
 b) [Question text]
 c) [Question text]
+
+q2.a) [Question text]
+b) [Question text]
+c) [Question text] and same for all remaining papers..
+
 
 5. Study Recommendations:
 Based on the analysis of all papers, here are the key recommendations for students:
