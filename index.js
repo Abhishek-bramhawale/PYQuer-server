@@ -557,6 +557,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
