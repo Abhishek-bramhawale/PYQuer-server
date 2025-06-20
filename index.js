@@ -365,6 +365,11 @@ ${paper.text}
             stop_sequences: [],
             return_likelihoods: 'NONE'
           });
+          
+          if (!cohereResponse || !cohereResponse.body || !cohereResponse.body.generations || !cohereResponse.body.generations[0]) {
+            throw new Error('Invalid response from Cohere API');
+          }
+
           analysis = cohereResponse.body.generations[0].text;
           break;
 
