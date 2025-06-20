@@ -183,14 +183,15 @@ ${isMathSubject ? 'NOTE: This analysis tool works best for theory subjects. For 
 You must return the results in EXACTLY this format, including ALL sections and subsections:
 
 1. Repeated Questions Analysis:
-If there are repeated questions, format them in a table like this:
-| Question | Repeated Count | Papers Appeared |
-|----------|---------------|-----------------|
-| What is software engineering? | 3 | Paper 1, Paper 2, Paper 3 |
-| Explain the waterfall model. | 2 | Paper 1, Paper 3 |
+Identify repeated or semantically similar questions that appear in two or more papers. These may not be worded exactly the same but should have substantially the same meaning or ask about the same concept. Group them together and format in a table like this:
 
-If there are NO repeated questions, simply state:
-"No repeated questions found across the papers."
+| Question  | Repeated Count | Papers Appeared |
+|------------------|----------------|------------------|
+| Ensemble Learning (e.g., "Discuss Ensemble Learning", "Explain Ensemble Learning in detail") | 2 | Paper 1, Paper 3 |
+| Bagging and Boosting (e.g., "Explain Bagging and Boosting", "Describe Bagging, Boosting, Stacking") | 2 | Paper 2, Paper 4 |
+
+If there are NO repeated or semantically similar questions, simply state:
+"No repeated or semantically similar questions found across the papers."
 
 2. Questions Asking for Differences:
 If there are questions asking for differences, format them in a table like this:
@@ -212,15 +213,26 @@ If there are questions requiring diagrams, format them in a table like this:
 If there are NO questions requiring diagrams, simply state:
 "No questions requiring diagrams found in the papers."
 
-4. Remaining Questions: list each and every remaining questions as it is that were not included in above three sections i.e. repeated, difference, diagrams. Exclude the questions that are already appeared in above 3 sections.. but list remaining all.. list compulsorily in following format -
-Paper 1:
-q1. a) [Question text]
-b) [Question text]
-c) [Question text]
+4. Remaining Questions:
+List only those questions that are not already included in the above three sections (Repeated Questions, Differences, Diagrams).
+These should be unique questions that have not been mentioned in any previous section.
+List them exactly as they appear in the input papers, using the format below:
 
-q2.a) [Question text]
-b) [Question text]
-c) [Question text] and same for all remaining papers..
+Paper 1:
+q1. a) [Question text]  
+b) [Question text]  
+c) [Question text]  
+
+q2. a) [Question text]  
+b) [Question text]  
+c) [Question text]  
+
+[and so on for all remaining papers…]
+Do not duplicate any question already covered in Sections 1, 2, or 3.
+
+Maintain blank lines between each question group for readability.
+
+Do not summarize or reword questions; use the exact original text from the papers.
 
 
 5. Study Recommendations:
