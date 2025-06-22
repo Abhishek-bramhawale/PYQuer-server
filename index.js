@@ -56,7 +56,12 @@ app.use((err, req, res, next) => {
 });
 
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5000'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5000',
+    'https://py-quer-client.vercel.app', 
+    'https://pyquer-client.vercel.app'   
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
