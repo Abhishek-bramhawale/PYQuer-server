@@ -424,6 +424,19 @@ ${paper.text}
         }))
       });
 
+      if (Array.isArray(papers)) {
+        for (const paper of papers) {
+          const filePath = path.join(__dirname, 'uploads', paper.fileId);
+          fs.unlink(filePath, (err) => {
+            if (err) {
+              console.warn(`Failed to delete file after analysis: ${filePath}`, err.message);
+            } else {
+              console.log(`Deleted uploaded file after analysis: ${filePath}`);
+            }
+          });
+        }
+      }
+
     } catch (apiError) {
       console.error(`${model.toUpperCase()} API Error:`, apiError);
       return res.status(500).json({
