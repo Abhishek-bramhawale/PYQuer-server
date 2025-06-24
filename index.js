@@ -58,7 +58,8 @@ app.use((err, req, res, next) => {
 app.use(cors({
   origin: [
     'https://pyquer-server.onrender.com',
-    // Add your production client URL here, e.g. 'https://pyquer-client.vercel.app'
+    'https://py-quer-client-git-main-abhisheks-projects-2307762b.vercel.app',
+    'https://py-quer-client.vercel.app',
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
