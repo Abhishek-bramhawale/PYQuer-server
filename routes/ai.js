@@ -4,7 +4,7 @@ const router = express.Router();
 const { protect } = require('../middleware/auth');
 const AnalysisHistory = require('../models/AnalysisHistory');
 
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = 'https://pyquer-server.onrender.com';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -73,7 +73,13 @@ router.get('/history', protect, async (req, res) => {
   try {
     const history = await AnalysisHistory.find({ user: req.user._id })
       .sort({ createdAt: -1 });
-    res.json({ history });
+    // Map to include papersText and prompt for frontend
+    const mappedHistory = history.map(item => ({
+      ...item.toObject(),
+      papersText: item.papersText,
+      prompt: item.prompt
+    }));
+    res.json({ history: mappedHistory });
   } catch (error) {
     console.error('Error fetching analysis history:', error);
     res.status(500).json({ error: 'Failed to fetch analysis history' });

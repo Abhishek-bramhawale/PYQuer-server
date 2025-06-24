@@ -57,10 +57,8 @@ app.use((err, req, res, next) => {
 
 app.use(cors({
   origin: [
-    'http://localhost:3000',
-    'http://localhost:5000',
-    'https://py-quer-client.vercel.app', 
-    'https://pyquer-client.vercel.app'   
+    'https://pyquer-server.onrender.com',
+    // Add your production client URL here, e.g. 'https://pyquer-client.vercel.app'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -409,19 +407,30 @@ ${paper.text}
             needsOCR: false 
           })),
           prompt,
+          papersText,
           analysis,
           modelUsed: model,
         });
         console.log('Analysis history saved for user:', userId);
       }
 
+      // Debug log before sending response
+      console.log('API RESPONSE /api/analyze:', {
+        analysis,
+        model,
+        papersText,
+        prompt,
+        papers: parsedPapers.map(paper => ({ originalName: paper.originalName }))
+      });
       res.json({
         analysis: analysis,
         model: model,
         timestamp: new Date().toISOString(),
         papers: parsedPapers.map(paper => ({
           originalName: paper.originalName // Return original name to client
-        }))
+        })),
+        papersText: papersText, // Add raw papersText to response
+        prompt: prompt // Add prompt template to response
       });
 
       if (Array.isArray(papers)) {
@@ -464,11 +473,7 @@ app.post('/api/ai/gemini', async (req, res) => {
       return res.status(400).json({ error: 'No valid papers found for analysis' });
     }
 
-    const papersText = parsedPapers.map((paper, index) => `
-Paper ${index + 1}:
-${paper.text}
-`).join('\n');
-
+    const papersText = parsedPapers.map((paper, index) => `\nPaper ${index + 1}:\n${paper.text}\n`).join('\n');
     const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
 
     const geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
@@ -476,10 +481,19 @@ ${paper.text}
     const response = await result.response;
     const analysis = response.text();
 
+    console.log('API RESPONSE /api/ai/gemini:', {
+      analysis,
+      model: 'gemini',
+      papersText,
+      prompt,
+      papers: parsedPapers.map(paper => ({ originalName: paper.originalName }))
+    });
     res.json({
       analysis: analysis,
       model: 'gemini',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      papersText: papersText,
+      prompt: prompt
     });
 
   } catch (error) {
@@ -504,11 +518,7 @@ app.post('/api/ai/mistral', async (req, res) => {
       return res.status(400).json({ error: 'No valid papers found for analysis' });
     }
 
-    const papersText = parsedPapers.map((paper, index) => `
-Paper ${index + 1}:
-${paper.text}
-`).join('\n');
-
+    const papersText = parsedPapers.map((paper, index) => `\nPaper ${index + 1}:\n${paper.text}\n`).join('\n');
     const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
 
     const { default: MistralClient } = await import('@mistralai/mistralai');
@@ -519,10 +529,19 @@ ${paper.text}
     });
     const analysis = mistralResponse.choices[0].message.content;
 
+    console.log('API RESPONSE /api/ai/mistral:', {
+      analysis,
+      model: 'mistral',
+      papersText,
+      prompt,
+      papers: parsedPapers.map(paper => ({ originalName: paper.originalName }))
+    });
     res.json({
       analysis: analysis,
       model: 'mistral',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      papersText: papersText,
+      prompt: prompt
     });
 
   } catch (error) {
@@ -547,11 +566,7 @@ app.post('/api/ai/cohere', async (req, res) => {
       return res.status(400).json({ error: 'No valid papers found for analysis' });
     }
 
-    const papersText = parsedPapers.map((paper, index) => `
-Paper ${index + 1}:
-${paper.text}
-`).join('\n');
-
+    const papersText = parsedPapers.map((paper, index) => `\nPaper ${index + 1}:\n${paper.text}\n`).join('\n');
     const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
 
     const cohereResponse = await cohere.generate({
@@ -573,10 +588,19 @@ ${paper.text}
 
     const analysis = cohereResponse.body.generations[0].text;
 
+    console.log('API RESPONSE /api/ai/cohere:', {
+      analysis,
+      model: 'cohere',
+      papersText,
+      prompt,
+      papers: parsedPapers.map(paper => ({ originalName: paper.originalName }))
+    });
     res.json({
       analysis: analysis,
       model: 'cohere',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      papersText: papersText,
+      prompt: prompt
     });
 
   } catch (error) {

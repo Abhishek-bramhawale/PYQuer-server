@@ -18,6 +18,10 @@ const analysisHistorySchema = new mongoose.Schema({
     type: String,
     required: true,
   },
+  papersText: {
+    type: String,
+    required: false,
+  },
   analysis: {
     type: String,
     required: true,
