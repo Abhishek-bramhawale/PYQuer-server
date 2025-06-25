@@ -57,6 +57,7 @@ app.use((err, req, res, next) => {
 
 app.use(cors({
   origin: [
+    'http://localhost:3000',
     'https://pyquer-server.onrender.com',
     'https://py-quer-client-git-main-abhisheks-projects-2307762b.vercel.app',
     'https://py-quer-client.vercel.app',
