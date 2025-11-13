@@ -115,6 +115,49 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 console.log('Initializing Cohere with API key:', process.env.COHERE_API_KEY ? 'API key is set' : 'API key is missing');
 cohere.init(process.env.COHERE_API_KEY);
 
+const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set');
+  }
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+  
+  const requestBody = {
+    contents: [{
+      parts: [{
+        text: prompt
+      }]
+    }]
+  };
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+      throw new Error('Invalid response format from Gemini API');
+    }
+
+    return data.candidates[0].content.parts[0].text;
+  } catch (error) {
+    console.error('Gemini v1beta API Error:', error);
+    throw error;
+  }
+};
+
 
 const parsePapers = async (papers) => {
   const parsedPapers = [];
@@ -343,10 +386,9 @@ ${paper.text}
     try {
       switch (model.toLowerCase()) {
         case 'gemini':
-          const geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-          const result = await geminiModel.generateContent(prompt);
-          const response = await result.response;
-          analysis = response.text();
+          const geminiModelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+          console.log(`Using Gemini model: ${geminiModelName}`);
+          analysis = await callGeminiV1Beta(prompt, geminiModelName);
           break;
 
         case 'mistral': {
@@ -478,10 +520,9 @@ app.post('/api/ai/gemini', async (req, res) => {
     const papersText = parsedPapers.map((paper, index) => `\nPaper ${index + 1}:\n${paper.text}\n`).join('\n');
     const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
 
-    const geminiModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await geminiModel.generateContent(prompt);
-    const response = await result.response;
-    const analysis = response.text();
+    const geminiModelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    console.log(`Using Gemini model: ${geminiModelName}`);
+    const analysis = await callGeminiV1Beta(prompt, geminiModelName);
 
     console.log('API RESPONSE /api/ai/gemini:', {
       analysis,

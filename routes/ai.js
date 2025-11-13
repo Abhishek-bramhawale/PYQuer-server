@@ -1,21 +1,50 @@
 const express = require('express');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
 const AnalysisHistory = require('../models/AnalysisHistory');
 
 const API_BASE_URL = 'https://pyquer-server.onrender.com';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set');
+  }
 
-const generateAIResponse = async (model, prompt) => {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+  
+  const requestBody = {
+    contents: [{
+      parts: [{
+        text: prompt
+      }]
+    }]
+  };
+
   try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Gemini API error: ${response.status} ${response.statusText} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content || !data.candidates[0].content.parts || !data.candidates[0].content.parts[0]) {
+      throw new Error('Invalid response format from Gemini API');
+    }
+
+    return data.candidates[0].content.parts[0].text;
   } catch (error) {
-    console.error('AI Response Error:', error);
-    throw new Error('Failed to generate AI response');
+    console.error('Gemini v1beta API Error:', error);
+    throw error;
   }
 };
 
@@ -27,10 +56,11 @@ router.post('/gemini', async (req, res) => {
       return res.status(400).json({ error: 'Analysis text is required' });
     }
 
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    const geminiModelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+    console.log(`Using Gemini model: ${geminiModelName}`);
     const prompt = `Based on the following analysis, provide additional insights and recommendations:\n\n${analysis}`;
     
-    const response = await generateAIResponse(model, prompt);
+    const response = await callGeminiV1Beta(prompt, geminiModelName);
     res.json({ response });
   } catch (error) {
     console.error('Gemini API Error:', error);
