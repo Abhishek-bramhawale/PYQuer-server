@@ -1,6 +1,8 @@
+// JWT auth helpers — protect routes and issue login tokens
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
+// Check JWT token and attach logged-in user to req.user
 const protect = async (req, res, next) => {
   let token;
 
@@ -32,7 +34,7 @@ const protect = async (req, res, next) => {
   }
 };
 
-// Middleware to check if user is admin
+// Only allow users with admin role to continue
 const admin = (req, res, next) => {
   if (req.user && req.user.role === 'admin') {
     next();
@@ -41,7 +43,7 @@ const admin = (req, res, next) => {
   }
 };
 
-// Generate JWT token
+// Create a login token that expires in 30 days
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET, {
     expiresIn: '30d', // Token expires in 30 days

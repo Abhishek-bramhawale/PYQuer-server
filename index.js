@@ -1,3 +1,4 @@
+// Main server — PDF upload, text extraction, AI analysis, auth routes
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -18,7 +19,7 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
 
-// mongoos Connection
+// Connect to MongoDB Atlas using MONGODB_URI from .env
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
@@ -86,6 +87,7 @@ const aiRoutes = require('./routes/ai');
 app.use('/api/auth', authRoutes);
 app.use('/api/ai', aiRoutes);
 
+// Save uploaded PDFs to server/uploads/ with a timestamped filename
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
     const uploadDir = path.join(__dirname, 'uploads');
@@ -99,6 +101,7 @@ const storage = multer.diskStorage({
   }
 });
 
+// Only accept PDF file uploads
 const upload = multer({
   storage: storage,
   fileFilter: (req, file, cb) => {
@@ -115,6 +118,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 console.log('Initializing Cohere with API key:', process.env.COHERE_API_KEY ? 'API key is set' : 'API key is missing');
 cohere.init(process.env.COHERE_API_KEY);
 
+// Call Google Gemini API with a text prompt and return the answer
 const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -158,7 +162,7 @@ const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
   }
 };
 
-
+// Read each uploaded PDF — use pdf-parse or OCR (Tesseract) if scanned
 const parsePapers = async (papers) => {
   const parsedPapers = [];
   for (const paper of papers) {
@@ -201,7 +205,7 @@ const parsePapers = async (papers) => {
   return parsedPapers;
 };
 
-// not supported sentence sub..
+// Check if papers look like math/TOC subjects (analysis prompt is adjusted)
 const isMathSubject = (papers) => {
   return papers.some(paper => {
     const subject = paper.subject.toLowerCase();
@@ -321,6 +325,7 @@ ${papersText}
 `;
 };
 
+// POST /api/upload — receive PDF files, save them, check if OCR is needed
 app.post('/api/upload', upload.array('files'), async (req, res) => {
   try {
     if (!req.files || req.files.length === 0) {
@@ -362,6 +367,7 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
   }
 });
 
+// POST /api/analyze — extract text, call AI model, save history if logged in, delete temp files
 app.post('/api/analyze', async (req, res) => {
   try {
     const { papers, model = 'gemini' } = req.body;

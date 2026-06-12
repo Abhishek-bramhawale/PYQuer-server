@@ -1,10 +1,11 @@
+// Auth routes — register, login, profile under /api/auth
 const express = require('express');
 const User = require('../models/User');
 const { protect, generateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
-
+// Create a new user account and return a token
 const registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -41,9 +42,7 @@ const registerUser = async (req, res) => {
   }
 };
 
-// @desc    Authenticate user & get token
-// @route   POST /api/auth/login
-// @access  Public
+// Check email/password and return a token
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -82,9 +81,7 @@ const loginUser = async (req, res) => {
   }
 };
 
-// @desc    Get user profile
-// @route   GET /api/auth/profile
-// @access  Private
+// Return profile info for the logged-in user
 const getUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -107,9 +104,7 @@ const getUserProfile = async (req, res) => {
   }
 };
 
-// @desc    Update user profile
-// @route   PUT /api/auth/profile
-// @access  Private
+// Update name, email, or password for the logged-in user
 const updateUserProfile = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
@@ -140,9 +135,7 @@ const updateUserProfile = async (req, res) => {
   }
 };
 
-// @desc    Get all users (Admin only)
-// @route   GET /api/auth/users
-// @access  Private/Admin
+// List all users (intended for admin use)
 const getUsers = async (req, res) => {
   try {
     const users = await User.find({}).select('-password');
@@ -153,9 +146,7 @@ const getUsers = async (req, res) => {
   }
 };
 
-// @desc    Delete user (Admin only)
-// @route   DELETE /api/auth/users/:id
-// @access  Private/Admin
+// Delete a user by id (intended for admin use)
 const deleteUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);

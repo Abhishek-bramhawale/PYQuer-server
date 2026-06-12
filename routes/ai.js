@@ -1,3 +1,4 @@
+// AI helper routes — history and optional model endpoints under /api/ai
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
@@ -5,6 +6,7 @@ const AnalysisHistory = require('../models/AnalysisHistory');
 
 const API_BASE_URL = 'https://pyquer-server.onrender.com';
 
+// Send a text prompt to Google Gemini and return the reply
 const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -48,7 +50,7 @@ const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
   }
 };
 
-// Gemini endpoint
+// POST /api/ai/gemini — get extra insights from Gemini based on existing analysis text
 router.post('/gemini', async (req, res) => {
   try {
     const { analysis } = req.body;
@@ -68,7 +70,7 @@ router.post('/gemini', async (req, res) => {
   }
 });
 
-// Cohere endpoint
+// POST /api/ai/cohere — placeholder, not implemented yet
 router.post('/cohere', async (req, res) => {
   try {
     const { analysis } = req.body;
@@ -83,7 +85,7 @@ router.post('/cohere', async (req, res) => {
   }
 });
 
-// Mistral endpoint
+// POST /api/ai/mistral — placeholder, not implemented yet
 router.post('/mistral', async (req, res) => {
   try {
     const { analysis } = req.body;
@@ -98,7 +100,7 @@ router.post('/mistral', async (req, res) => {
   }
 });
 
-// Get history for the loggined user
+// GET /api/ai/history — return all saved analyses for the logged-in user
 router.get('/history', protect, async (req, res) => {
   try {
     const history = await AnalysisHistory.find({ user: req.user._id })

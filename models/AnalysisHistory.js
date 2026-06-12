@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 
+// Saved AI analysis for a user (pyquer_analysis_history collection)
 const analysisHistorySchema = new mongoose.Schema({
   user: {
     type: mongoose.Schema.Types.ObjectId,

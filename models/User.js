@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+// User account stored in MongoDB (pyquer_users collection)
 const userSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -47,6 +48,7 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Hash password before saving a new or updated user
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   
@@ -59,10 +61,12 @@ userSchema.pre('save', async function(next) {
   }
 });
 
+// Check if typed password matches the stored hash
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
+// Save current time as last login
 userSchema.methods.updateLastLogin = function() {
   this.lastLogin = new Date();
   return this.save();
