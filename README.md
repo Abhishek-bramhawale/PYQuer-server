@@ -43,6 +43,8 @@ Gemini always tries `GEMINI_MODEL` first; if that call fails once, it retries on
 
 OpenRouter uses the free router model `openrouter/free` by default (OpenAI-compatible API; key never sent to the frontend).
 
+`GET /api/ai/health` probes configured providers once and keeps the result for the whole server process. The client also stores that result in `sessionStorage` for the browser tab session and does not re-check when the dropdown opens. Analysis retries stay separate from health checks.
+
 ## Install & Run
 
 ```bash
@@ -61,6 +63,7 @@ Server starts on `http://localhost:5000` by default.
 - `GET /api/auth/users` – List users (auth)
 - `DELETE /api/auth/users/:id` – Delete user (auth)
 - `POST /api/upload` – Upload PDFs (multipart)
+- `GET /api/ai/health` – AI provider status (Gemini, Grok, OpenRouter, Mistral); cached for the server session
 - `POST /api/analyze` – Analyze papers (`model`: gemini|mistral|cohere|grok|openrouter)
 - `GET /api/ai/history` – Get analysis history (auth)
 - `GET /api/health` – Health check

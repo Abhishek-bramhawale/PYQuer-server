@@ -2,8 +2,20 @@ const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
 const AnalysisHistory = require('../models/AnalysisHistory');
+const { getProviderHealth } = require('../utils/providerHealth');
 
 const API_BASE_URL = 'https://pyquer-server.onrender.com';
+
+// GET /api/ai/health — provider availability (cached for whole server session)
+router.get('/health', async (req, res) => {
+  try {
+    const health = await getProviderHealth();
+    res.json(health);
+  } catch (error) {
+    console.error('Provider health check error:', error);
+    res.status(500).json({ error: 'Failed to check AI provider health' });
+  }
+});
 
 // Send a text prompt to Google Gemini and return the reply
 const callGeminiV1Beta = async (prompt, modelName) => {
