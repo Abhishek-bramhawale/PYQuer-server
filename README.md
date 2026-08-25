@@ -26,8 +26,18 @@ GEMINI_API_KEY=your_gemini_api_key_here
 # Optional for other providers
 MISTRAL_API_KEY=your_mistral_api_key_here
 COHERE_API_KEY=your_cohere_api_key_here
+GROK_API_KEY=your_xai_api_key_here
 PORT=5000
+
+# Model IDs (used by the server; change without editing code)
+GEMINI_MODEL=gemini-3.7-flash
+GEMINI_FALLBACK_MODEL=gemini-3.5-flash-lite
+MISTRAL_MODEL=mistral-large-latest
+COHERE_MODEL=command
+GROK_MODEL=grok-4.20-0309-non-reasoning
 ```
+
+Gemini always tries `GEMINI_MODEL` first; if that call fails once, it retries once with `GEMINI_FALLBACK_MODEL`.
 
 ## Install & Run
 
@@ -47,7 +57,7 @@ Server starts on `http://localhost:5000` by default.
 - `GET /api/auth/users` – List users (auth)
 - `DELETE /api/auth/users/:id` – Delete user (auth)
 - `POST /api/upload` – Upload PDFs (multipart)
-- `POST /api/analyze` – Analyze papers (`model`: gemini|mistral|cohere)
+- `POST /api/analyze` – Analyze papers (`model`: gemini|mistral|cohere|grok)
 - `GET /api/ai/history` – Get analysis history (auth)
 - `GET /api/health` – Health check
 

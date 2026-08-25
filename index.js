@@ -119,10 +119,13 @@ console.log('Initializing Cohere with API key:', process.env.COHERE_API_KEY ? 'A
 cohere.init(process.env.COHERE_API_KEY);
 
 // Call Google Gemini API with a text prompt and return the answer
-const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
+const callGeminiV1Beta = async (prompt, modelName) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not set');
+  }
+  if (!modelName) {
+    throw new Error('Gemini model name is not set');
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -160,6 +163,52 @@ const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
     console.error('Gemini v1beta API Error:', error);
     throw error;
   }
+};
+
+// Try primary Gemini model from env; on failure, retry once with fallback model
+const callGeminiWithFallback = async (prompt) => {
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
+
+  try {
+    console.log(`Using Gemini model: ${primaryModel}`);
+    return await callGeminiV1Beta(prompt, primaryModel);
+  } catch (primaryError) {
+    console.warn(
+      `Primary Gemini model (${primaryModel}) failed once. Retrying with fallback (${fallbackModel}):`,
+      primaryError.message
+    );
+    console.log(`Using Gemini fallback model: ${fallbackModel}`);
+    return await callGeminiV1Beta(prompt, fallbackModel);
+  }
+};
+
+// Call Grok (xAI) via OpenAI-compatible chat completions API
+const callGrok = async (prompt) => {
+  const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GROK_API_KEY (or XAI_API_KEY) is not set');
+  }
+
+  const modelName = process.env.GROK_MODEL || 'grok-4.20-0309-non-reasoning';
+  console.log(`Using Grok model: ${modelName}`);
+
+  const OpenAI = require('openai');
+  const client = new OpenAI({
+    apiKey,
+    baseURL: 'https://api.x.ai/v1',
+  });
+
+  const response = await client.chat.completions.create({
+    model: modelName,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const content = response?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('Invalid response from Grok API');
+  }
+  return content;
 };
 
 // Read each uploaded PDF — use pdf-parse or OCR (Tesseract) if scanned
@@ -392,25 +441,31 @@ ${paper.text}
     try {
       switch (model.toLowerCase()) {
         case 'gemini':
-          const geminiModelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-          console.log(`Using Gemini model: ${geminiModelName}`);
-          analysis = await callGeminiV1Beta(prompt, geminiModelName);
+          analysis = await callGeminiWithFallback(prompt);
+          break;
+
+        case 'grok':
+          analysis = await callGrok(prompt);
           break;
 
         case 'mistral': {
           const { default: MistralClient } = await import('@mistralai/mistralai');
           const mistralClient = new MistralClient(process.env.MISTRAL_API_KEY);
+          const mistralModelName = process.env.MISTRAL_MODEL || 'mistral-large-latest';
+          console.log(`Using Mistral model: ${mistralModelName}`);
           const mistralResponse = await mistralClient.chat({
-            model: 'mistral-large-latest',
+            model: mistralModelName,
             messages: [{ role: 'user', content: prompt }]
           });
           analysis = mistralResponse.choices[0].message.content;
           break;
         }
 
-        case 'cohere':
+        case 'cohere': {
+          const cohereModelName = process.env.COHERE_MODEL || 'command';
+          console.log(`Using Cohere model: ${cohereModelName}`);
           const cohereResponse = await cohere.generate({
-            model: 'command',
+            model: cohereModelName,
             prompt: prompt,
             max_tokens: 2000,
             temperature: 0.7,
@@ -425,6 +480,7 @@ ${paper.text}
 
           analysis = cohereResponse.body.generations[0].text;
           break;
+        }
 
         default:
           return res.status(400).json({ error: 'Invalid model specified' });
@@ -526,9 +582,7 @@ app.post('/api/ai/gemini', async (req, res) => {
     const papersText = parsedPapers.map((paper, index) => `\nPaper ${index + 1}:\n${paper.text}\n`).join('\n');
     const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
 
-    const geminiModelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-    console.log(`Using Gemini model: ${geminiModelName}`);
-    const analysis = await callGeminiV1Beta(prompt, geminiModelName);
+    const analysis = await callGeminiWithFallback(prompt);
 
     console.log('API RESPONSE /api/ai/gemini:', {
       analysis,
@@ -572,8 +626,10 @@ app.post('/api/ai/mistral', async (req, res) => {
 
     const { default: MistralClient } = await import('@mistralai/mistralai');
     const mistralClient = new MistralClient(process.env.MISTRAL_API_KEY);
+    const mistralModelName = process.env.MISTRAL_MODEL || 'mistral-large-latest';
+    console.log(`Using Mistral model: ${mistralModelName}`);
     const mistralResponse = await mistralClient.chat({
-      model: 'mistral-large-latest',
+      model: mistralModelName,
       messages: [{ role: 'user', content: prompt }]
     });
     const analysis = mistralResponse.choices[0].message.content;
@@ -618,8 +674,10 @@ app.post('/api/ai/cohere', async (req, res) => {
     const papersText = parsedPapers.map((paper, index) => `\nPaper ${index + 1}:\n${paper.text}\n`).join('\n');
     const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
 
+    const cohereModelName = process.env.COHERE_MODEL || 'command';
+    console.log(`Using Cohere model: ${cohereModelName}`);
     const cohereResponse = await cohere.generate({
-      model: 'command',
+      model: cohereModelName,
       prompt: prompt,
       max_tokens: 2000,
       temperature: 0.7,

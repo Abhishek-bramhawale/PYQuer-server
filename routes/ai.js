@@ -1,4 +1,3 @@
-// AI helper routes — history and optional model endpoints under /api/ai
 const express = require('express');
 const router = express.Router();
 const { protect } = require('../middleware/auth');
@@ -7,10 +6,13 @@ const AnalysisHistory = require('../models/AnalysisHistory');
 const API_BASE_URL = 'https://pyquer-server.onrender.com';
 
 // Send a text prompt to Google Gemini and return the reply
-const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
+const callGeminiV1Beta = async (prompt, modelName) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not set');
+  }
+  if (!modelName) {
+    throw new Error('Gemini model name is not set');
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -50,6 +52,24 @@ const callGeminiV1Beta = async (prompt, modelName = 'gemini-2.5-flash') => {
   }
 };
 
+// Try primary Gemini model from env; on failure, retry once with fallback model
+const callGeminiWithFallback = async (prompt) => {
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
+
+  try {
+    console.log(`Using Gemini model: ${primaryModel}`);
+    return await callGeminiV1Beta(prompt, primaryModel);
+  } catch (primaryError) {
+    console.warn(
+      `Primary Gemini model (${primaryModel}) failed once. Retrying with fallback (${fallbackModel}):`,
+      primaryError.message
+    );
+    console.log(`Using Gemini fallback model: ${fallbackModel}`);
+    return await callGeminiV1Beta(prompt, fallbackModel);
+  }
+};
+
 // POST /api/ai/gemini — get extra insights from Gemini based on existing analysis text
 router.post('/gemini', async (req, res) => {
   try {
@@ -58,11 +78,9 @@ router.post('/gemini', async (req, res) => {
       return res.status(400).json({ error: 'Analysis text is required' });
     }
 
-    const geminiModelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
-    console.log(`Using Gemini model: ${geminiModelName}`);
     const prompt = `Based on the following analysis, provide additional insights and recommendations:\n\n${analysis}`;
     
-    const response = await callGeminiV1Beta(prompt, geminiModelName);
+    const response = await callGeminiWithFallback(prompt);
     res.json({ response });
   } catch (error) {
     console.error('Gemini API Error:', error);
@@ -70,7 +88,7 @@ router.post('/gemini', async (req, res) => {
   }
 });
 
-// POST /api/ai/cohere — placeholder, not implemented yet
+// Cohere endpoint
 router.post('/cohere', async (req, res) => {
   try {
     const { analysis } = req.body;
@@ -85,7 +103,7 @@ router.post('/cohere', async (req, res) => {
   }
 });
 
-// POST /api/ai/mistral — placeholder, not implemented yet
+// Mistral endpoint
 router.post('/mistral', async (req, res) => {
   try {
     const { analysis } = req.body;
