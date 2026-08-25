@@ -29,7 +29,7 @@ const analysisHistorySchema = new mongoose.Schema({
   },
   modelUsed: {
     type: String,
-    enum: ['gemini', 'mistral', 'cohere', 'grok'],
+    enum: ['gemini', 'mistral', 'cohere', 'grok', 'openrouter'],
     required: true,
   },
   createdAt: {

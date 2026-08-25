@@ -211,6 +211,48 @@ const callGrok = async (prompt) => {
   return content;
 };
 
+// Call OpenRouter free router via OpenAI-compatible API (key stays on server)
+const callOpenRouter = async (prompt) => {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OpenRouter is not configured. Please try another AI model.');
+  }
+
+  const modelName = process.env.OPENROUTER_MODEL || 'openrouter/free';
+  console.log(`Using OpenRouter model: ${modelName}`);
+
+  try {
+    const OpenAI = require('openai');
+    const client = new OpenAI({
+      apiKey,
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'https://py-quer-client.vercel.app',
+        'X-Title': process.env.OPENROUTER_APP_TITLE || 'PYQuer',
+      },
+    });
+
+    const response = await client.chat.completions.create({
+      model: modelName,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const content = response?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('OpenRouter returned an empty response. Please try again.');
+    }
+    return content;
+  } catch (error) {
+    const apiMessage = error?.error?.message || error?.message || '';
+    console.error('OpenRouter API Error:', apiMessage || error);
+    throw new Error(
+      apiMessage
+        ? `OpenRouter failed: ${apiMessage}`
+        : 'OpenRouter analysis failed. Please try again or pick another AI model.'
+    );
+  }
+};
+
 // Read each uploaded PDF — use pdf-parse or OCR (Tesseract) if scanned
 const parsePapers = async (papers) => {
   const parsedPapers = [];
@@ -446,6 +488,10 @@ ${paper.text}
 
         case 'grok':
           analysis = await callGrok(prompt);
+          break;
+
+        case 'openrouter':
+          analysis = await callOpenRouter(prompt);
           break;
 
         case 'mistral': {
