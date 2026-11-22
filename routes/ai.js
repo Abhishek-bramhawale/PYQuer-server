@@ -6,10 +6,11 @@ const { getProviderHealth } = require('../utils/providerHealth');
 
 const API_BASE_URL = 'https://pyquer-server.onrender.com';
 
-// GET /api/ai/health — provider availability (cached for whole server session)
+// GET /api/ai/health — provider availability (short server TTL; ?fresh=1 bypasses cache)
 router.get('/health', async (req, res) => {
   try {
-    const health = await getProviderHealth();
+    const force = req.query.fresh === '1' || req.query.fresh === 'true';
+    const health = await getProviderHealth({ force });
     res.json(health);
   } catch (error) {
     console.error('Provider health check error:', error);

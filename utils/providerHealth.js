@@ -1,14 +1,27 @@
-const HEALTH_CACHE_TTL_MS = null;
+// Lightweight provider probes (model/key GETs — not full chat completions).
+// Short in-memory TTL so page refresh can recheck without hammering APIs.
+
+const HEALTH_CACHE_TTL_MS = 30_000;
+const PROBE_TIMEOUT_MS = 4000;
+const DEGRADED_LATENCY_MS = 2500;
 
 let healthCache = null;
-
-const DEGRADED_LATENCY_MS = 4000;
 
 const statusFromResult = (ok, latencyMs, configured) => {
   if (!configured) return 'unavailable';
   if (!ok) return 'unavailable';
   if (latencyMs > DEGRADED_LATENCY_MS) return 'degraded';
   return 'ready';
+};
+
+const fetchWithTimeout = async (url, options = {}) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 const timed = async (fn) => {
@@ -20,20 +33,22 @@ const timed = async (fn) => {
     return {
       ok: false,
       latencyMs: Date.now() - start,
-      error: error.message || 'Health check failed',
+      error: error.name === 'AbortError' ? 'Health check timed out' : (error.message || 'Health check failed'),
     };
   }
 };
 
 const probeGemini = async () => {
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.7-flash';
+  const fallbackModel = process.env.GEMINI_FALLBACK_MODEL || 'gemini-3.5-flash-lite';
   const configured = Boolean(apiKey);
+
   if (!configured) {
     return {
       id: 'gemini',
       name: 'Gemini',
-      model,
+      model: primaryModel,
       configured: false,
       status: 'unavailable',
       latencyMs: null,
@@ -41,33 +56,54 @@ const probeGemini = async () => {
     };
   }
 
-  const result = await timed(async () => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: 'Reply with OK only.' }] }],
-      }),
-    });
+  const checkModel = async (model) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}?key=${apiKey}`;
+    const response = await fetchWithTimeout(url);
     if (!response.ok) {
       const text = await response.text();
       throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
     }
     const data = await response.json();
-    if (!data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-      throw new Error('Invalid Gemini health response');
+    if (!data?.name) {
+      throw new Error('Invalid Gemini model response');
     }
-  });
+  };
+
+  // Fast GET on model metadata (no token generation)
+  const primary = await timed(() => checkModel(primaryModel));
+  if (primary.ok) {
+    return {
+      id: 'gemini',
+      name: 'Gemini',
+      model: primaryModel,
+      configured: true,
+      status: statusFromResult(true, primary.latencyMs, true),
+      latencyMs: primary.latencyMs,
+      error: null,
+    };
+  }
+
+  const fallback = await timed(() => checkModel(fallbackModel));
+  if (fallback.ok) {
+    return {
+      id: 'gemini',
+      name: 'Gemini',
+      model: fallbackModel,
+      configured: true,
+      status: 'degraded',
+      latencyMs: fallback.latencyMs,
+      error: `Primary (${primaryModel}) failed: ${primary.error}`,
+    };
+  }
 
   return {
     id: 'gemini',
     name: 'Gemini',
-    model,
+    model: primaryModel,
     configured: true,
-    status: statusFromResult(result.ok, result.latencyMs, true),
-    latencyMs: result.latencyMs,
-    error: result.error,
+    status: 'unavailable',
+    latencyMs: primary.latencyMs,
+    error: primary.error || fallback.error,
   };
 };
 
@@ -75,6 +111,7 @@ const probeGrok = async () => {
   const apiKey = process.env.GROK_API_KEY || process.env.XAI_API_KEY;
   const model = process.env.GROK_MODEL || 'grok-4.20-0309-non-reasoning';
   const configured = Boolean(apiKey);
+
   if (!configured) {
     return {
       id: 'grok',
@@ -88,16 +125,14 @@ const probeGrok = async () => {
   }
 
   const result = await timed(async () => {
-    const OpenAI = require('openai');
-    const client = new OpenAI({ apiKey, baseURL: 'https://api.x.ai/v1' });
-    const response = await client.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: 'Reply with OK only.' }],
-      max_tokens: 8,
+    const response = await fetchWithTimeout('https://api.x.ai/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey}` },
     });
-    if (!response?.choices?.[0]?.message?.content) {
-      throw new Error('Invalid Grok health response');
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
     }
+    await response.json();
   });
 
   return {
@@ -115,6 +150,7 @@ const probeOpenRouter = async () => {
   const apiKey = process.env.OPENROUTER_API_KEY;
   const model = process.env.OPENROUTER_MODEL || 'openrouter/free';
   const configured = Boolean(apiKey);
+
   if (!configured) {
     return {
       id: 'openrouter',
@@ -127,24 +163,16 @@ const probeOpenRouter = async () => {
     };
   }
 
+  // Key endpoint is much cheaper than a chat completion
   const result = await timed(async () => {
-    const OpenAI = require('openai');
-    const client = new OpenAI({
-      apiKey,
-      baseURL: 'https://openrouter.ai/api/v1',
-      defaultHeaders: {
-        'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'https://py-quer-client.vercel.app',
-        'X-Title': process.env.OPENROUTER_APP_TITLE || 'PYQuer',
-      },
+    const response = await fetchWithTimeout('https://openrouter.ai/api/v1/key', {
+      headers: { Authorization: `Bearer ${apiKey}` },
     });
-    const response = await client.chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: 'Reply with OK only.' }],
-      max_tokens: 8,
-    });
-    if (!response?.choices?.[0]?.message?.content) {
-      throw new Error('Invalid OpenRouter health response');
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
     }
+    await response.json();
   });
 
   return {
@@ -160,8 +188,10 @@ const probeOpenRouter = async () => {
 
 const probeMistral = async () => {
   const apiKey = process.env.MISTRAL_API_KEY;
-  const model = process.env.MISTRAL_MODEL || 'mistral-large-latest';
+  const model = process.env.MISTRAL_MODEL || 'mistral-small-latest';
+  const fallbackModel = process.env.MISTRAL_FALLBACK_MODEL || 'ministral-8b-latest';
   const configured = Boolean(apiKey);
+
   if (!configured) {
     return {
       id: 'mistral',
@@ -175,16 +205,37 @@ const probeMistral = async () => {
   }
 
   const result = await timed(async () => {
-    const { default: MistralClient } = await import('@mistralai/mistralai');
-    const client = new MistralClient(apiKey);
-    const response = await client.chat({
-      model,
-      messages: [{ role: 'user', content: 'Reply with OK only.' }],
+    const response = await fetchWithTimeout('https://api.mistral.ai/v1/models', {
+      headers: { Authorization: `Bearer ${apiKey}` },
     });
-    if (!response?.choices?.[0]?.message?.content) {
-      throw new Error('Invalid Mistral health response');
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+    }
+    const data = await response.json();
+    const ids = new Set((data?.data || []).map((m) => m.id));
+    if (!ids.has(model) && !ids.has(fallbackModel)) {
+      throw new Error(`Configured Mistral models not available on this key (${model})`);
+    }
+    if (!ids.has(model) && ids.has(fallbackModel)) {
+      // Primary missing but fallback exists — treat as degraded, not hard fail
+      const err = new Error(`Primary model ${model} not on this tier; fallback ${fallbackModel} available`);
+      err.degraded = true;
+      throw err;
     }
   });
+
+  if (!result.ok && /fallback .+ available/i.test(result.error || '')) {
+    return {
+      id: 'mistral',
+      name: 'Mistral',
+      model: fallbackModel,
+      configured: true,
+      status: 'degraded',
+      latencyMs: result.latencyMs,
+      error: result.error,
+    };
+  }
 
   return {
     id: 'mistral',
@@ -212,22 +263,25 @@ const runProviderHealthChecks = async () => {
 
   return {
     checkedAt: new Date().toISOString(),
-    cache: 'session',
+    cacheTtlMs: HEALTH_CACHE_TTL_MS,
     providers: byId,
   };
 };
 
-const getProviderHealth = async () => {
-  if (healthCache) {
+const getProviderHealth = async ({ force = false } = {}) => {
+  const now = Date.now();
+  if (
+    !force &&
+    healthCache &&
+    now - healthCache.cachedAt < HEALTH_CACHE_TTL_MS
+  ) {
     return { ...healthCache.payload, cached: true };
   }
 
   const payload = await runProviderHealthChecks();
   healthCache = {
     payload,
-    cachedAt: Date.now(),
-    // Kept for the whole process lifetime (session); TTL intentionally unused
-    ttlMs: HEALTH_CACHE_TTL_MS,
+    cachedAt: now,
   };
   return { ...payload, cached: false };
 };

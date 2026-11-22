@@ -8,8 +8,8 @@ const fs = require('fs');
 const pdfParse = require('pdf-parse');
 const mongoose = require('mongoose');
 const cohere = require('cohere-ai');
-const pdfImgConvert = require('pdf-img-convert');
 const Tesseract = require('tesseract.js');
+const { convertPdfToImages } = require('./utils/pdfToImages');
 const AnalysisHistory = require('./models/AnalysisHistory');
 const { protect } = require('./middleware/auth');
 const jwt = require('jsonwebtoken');
@@ -211,6 +211,64 @@ const callGrok = async (prompt) => {
   return content;
 };
 
+// Call Mistral chat; old SDK returns error bodies as data (no throw) — handle that
+const callMistral = async (prompt) => {
+  const apiKey = process.env.MISTRAL_API_KEY;
+  if (!apiKey) {
+    throw new Error('MISTRAL_API_KEY is not set');
+  }
+
+  const primaryModel = process.env.MISTRAL_MODEL || 'mistral-small-latest';
+  const fallbackModel = process.env.MISTRAL_FALLBACK_MODEL || 'ministral-8b-latest';
+
+  const { default: MistralClient } = await import('@mistralai/mistralai');
+  const mistralClient = new MistralClient(apiKey);
+
+  const chatOnce = async (modelName) => {
+    console.log(`Using Mistral model: ${modelName}`);
+    const response = await mistralClient.chat({
+      model: modelName,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // SDK swallows HTTP errors and returns { object: 'error', message, ... }
+    if (!response || response.object === 'error' || response.type === 'tier_not_allowed') {
+      const msg = response?.message || 'Mistral API request failed';
+      const err = new Error(msg);
+      err.code = response?.code;
+      err.type = response?.type;
+      throw err;
+    }
+
+    const content = response?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('Invalid response from Mistral API');
+    }
+    return content;
+  };
+
+  try {
+    return await chatOnce(primaryModel);
+  } catch (primaryError) {
+    const msg = primaryError?.message || '';
+    const shouldFallback =
+      primaryError?.type === 'tier_not_allowed' ||
+      primaryError?.type === 'rate_limited' ||
+      /not available in your subscription tier/i.test(msg) ||
+      /rate limit exceeded/i.test(msg);
+
+    if (!shouldFallback || fallbackModel === primaryModel) {
+      throw primaryError;
+    }
+
+    console.warn(
+      `Primary Mistral model (${primaryModel}) failed. Retrying with fallback (${fallbackModel}):`,
+      msg
+    );
+    return await chatOnce(fallbackModel);
+  }
+};
+
 // Call OpenRouter free router via OpenAI-compatible API (key stays on server)
 const callOpenRouter = async (prompt) => {
   const apiKey = process.env.OPENROUTER_API_KEY;
@@ -265,7 +323,7 @@ const parsePapers = async (papers) => {
     let text = '';
     if (paper.needsOCR) {
       console.log(`Performing OCR for non-searchable PDF: ${paper.originalName}`);
-      const images = await pdfImgConvert.convert(filePath, { width: 2200, height: 3000 });
+      const images = await convertPdfToImages(filePath, { width: 2200 });
       let ocrText = '';
       for (let i = 0; i < images.length; i++) {
         const img = images[i];
@@ -494,18 +552,9 @@ ${paper.text}
           analysis = await callOpenRouter(prompt);
           break;
 
-        case 'mistral': {
-          const { default: MistralClient } = await import('@mistralai/mistralai');
-          const mistralClient = new MistralClient(process.env.MISTRAL_API_KEY);
-          const mistralModelName = process.env.MISTRAL_MODEL || 'mistral-large-latest';
-          console.log(`Using Mistral model: ${mistralModelName}`);
-          const mistralResponse = await mistralClient.chat({
-            model: mistralModelName,
-            messages: [{ role: 'user', content: prompt }]
-          });
-          analysis = mistralResponse.choices[0].message.content;
+        case 'mistral':
+          analysis = await callMistral(prompt);
           break;
-        }
 
         case 'cohere': {
           const cohereModelName = process.env.COHERE_MODEL || 'command';
@@ -670,15 +719,7 @@ app.post('/api/ai/mistral', async (req, res) => {
     const papersText = parsedPapers.map((paper, index) => `\nPaper ${index + 1}:\n${paper.text}\n`).join('\n');
     const prompt = generatePrompt(papersText, isMathSubject(parsedPapers));
 
-    const { default: MistralClient } = await import('@mistralai/mistralai');
-    const mistralClient = new MistralClient(process.env.MISTRAL_API_KEY);
-    const mistralModelName = process.env.MISTRAL_MODEL || 'mistral-large-latest';
-    console.log(`Using Mistral model: ${mistralModelName}`);
-    const mistralResponse = await mistralClient.chat({
-      model: mistralModelName,
-      messages: [{ role: 'user', content: prompt }]
-    });
-    const analysis = mistralResponse.choices[0].message.content;
+    const analysis = await callMistral(prompt);
 
     console.log('API RESPONSE /api/ai/mistral:', {
       analysis,

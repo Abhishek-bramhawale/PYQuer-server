@@ -6,15 +6,15 @@ Backend API for processing uploaded PDF question papers, extracting text (includ
 
 - JWT authentication and user management
 - File uploads using Multer
-- PDF parsing with `pdf-parse` and OCR with `tesseract.js`
+- PDF parsing with `pdf-parse`; scanned PDFs use OCR (`pdfjs-dist` + `@napi-rs/canvas` + `tesseract.js`)
 - AI analysis endpoints: Gemini, Mistral, Cohere
 - MongoDB database for analysis storing history
 
 ## Requirements
 
-- Node.js 18+ and npm
+- Node.js 18+ 
 - MongoDB Atlas 
-- API keys: Gemini (required), optional Mistral and Cohere
+- API keys: Gemini (required), optional Mistral, Cohere, Grok, OpenRouter
 
 ## Environment Variables
 
